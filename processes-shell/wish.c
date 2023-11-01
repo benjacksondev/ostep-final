@@ -6,6 +6,14 @@
 #include <sys/wait.h>
 
 #define SHELL_NAME "wish"
+#define LOGGING_ENABLED 0
+
+
+void log_it(char *key, char *str) {
+    if (LOGGING_ENABLED) {
+        printf("%s: %s\n", key, str); 
+    }
+}
 
 void remove_new_line(char *str) {
     size_t len = strlen(str);
@@ -14,26 +22,49 @@ void remove_new_line(char *str) {
     }
 }
 
-char **parse_input(char *input) {
-    char *token;
-    char **tokens = (char **)malloc(100 * sizeof(char *));
+char*** parse_input(char *input) {
+    char*** tokens = (char ***)malloc(10 * sizeof(char **));
     if (tokens == NULL) {
         perror("malloc");
         exit(1);
     }
 
     char *delimiter = " ";
-    int token_count = 0;
+    char *logicalAnd = "&&";
+    int line_count = 0;
+    char *line;
+    char *tmp = input;    
 
-    token = strsep(&input, delimiter);
-    while (token != NULL) {
-        remove_new_line(token);
-        tokens[token_count] = token;
-        token = strsep(&input, delimiter);
-        token_count++;
+    while ((line = strsep(&tmp, logicalAnd)) != NULL) {
+        tokens[line_count] = (char **)malloc(10 * sizeof(char *));
+        if (tokens[line_count] == NULL) {
+            perror("malloc");
+            exit(1);
+        }
+        int token_count = 0;
+        char *token;
+
+        while ((token = strsep(&line, delimiter)) != NULL) {
+            remove_new_line(token);
+            if (strcmp(token, "") == 0) {
+                continue; 
+            }
+            tokens[line_count][token_count] = token;
+            if (tokens[line_count][token_count] == NULL) {
+                perror("malloc");
+                exit(1);
+            }
+            token_count++;
+        }
+        
+        tokens[line_count][token_count] = NULL;
+       
+        if (tokens[line_count][0] != NULL) {
+            line_count++;
+        } 
     }
-    tokens[token_count] = NULL; // Null-terminate the array.
 
+    tokens[line_count] = NULL;
     return tokens;
 }
 
@@ -42,34 +73,38 @@ int main(int argc, char *argv[]) {
     size_t linecap = 0;
     ssize_t linelen;
 
-    printf("Hello, welcome to %s\n", SHELL_NAME);
     printf("%s>", SHELL_NAME);
     while ((linelen = getline(&line, &linecap, stdin)) > 0) {
-        char **tokens = parse_input(line);
+        char ***tokens = parse_input(line);
         pid_t child_pid;
         int status;
 
-        if (strcmp(tokens[0], "exit") == 0) {
-            printf("Goodbye\n");
-            free(tokens); // Free dynamically allocated memory
-            free(line);
-            exit(0);
-        }
-
-        if (strcmp(tokens[0], "clear") == 0) {
-            system("clear"); // Clear the terminal screen
-        } else {
-            child_pid = fork();
-            if (child_pid == 0) {
-                execvp(tokens[0], tokens); // Use parsed command and arguments
-                perror("execvp");
-                exit(1);
-            } else {
-                wait(&status);
+        int i = 0; 
+        for (i = 0; tokens[i] != NULL; i++) {
+            if (strcmp(tokens[i][0], "exit") == 0) {
+                printf("Goodbye\n");
+                free(line);
+                exit(0);
             }
-        }
 
-        free(tokens); // Free dynamically allocated memory
+            if (strcmp(tokens[i][0], "clear") == 0) { 
+                system("clear"); // Clear the terminal screen
+            } else {
+                child_pid = fork();
+                if (child_pid == 0) {
+                    execvp(tokens[i][0], tokens[i]); // Use parsed command and arguments
+                    perror("execvp");
+                    free(tokens[i]);
+                    exit(1);
+                } else {
+                    wait(&status);
+                }
+            }
+
+            free(tokens[i]);
+        }
+        free(tokens);
+         
         printf("%s>", SHELL_NAME);
     }
 
